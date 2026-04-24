@@ -6,10 +6,7 @@ solutions = [
     "deps_file": "DEPS",
     "safesync_url": "",
     "custom_deps": {
-      #"engine/src/flutter/buildtools/linux-x64/clang": None,
-      #"engine/src/flutter/buildtools/linux-arm64/clang": None,
       "engine/src/fuchsia/sdk/linux": None,
-      #"engine/src/flutter/third_party/dart/tools/sdks/dart-sdk": None,
       "engine/src/third_party/google_fonts_for_unit_tests": None,
       "engine/src/flutter/third_party/java/openjdk": None,
     },
@@ -24,22 +21,5 @@ solutions = [
       "download_windows_deps" : False,
       "download_fuchsia_deps" : False,
     },
-    "custom_hooks" : [
-      {
-        'name': 'patch engine',
-        'pattern': '.',
-        'action': ['git', "apply", "../patches/engine.patch"],
-      },
-      {
-        'name': 'patch dart',
-        'pattern': '.',
-        'action': ['git', "-C", "engine/src/flutter/third_party/dart", "apply", "../../../../../../patches/dart.patch"],
-      },
-      {
-        'name': 'patch skia',
-        'pattern': '.',
-        'action': ['git', "-C", "engine/src/flutter/third_party/skia", "apply", "../../../../../../patches/skia.patch"],
-      },
-    ]
   }
 ]

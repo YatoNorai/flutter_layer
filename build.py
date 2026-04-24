@@ -109,15 +109,13 @@ class Build:
         elif os.path.isdir(out):
             logger.info(f'moving {out} to {out}.old ...')
             os.rename(out, f'{out}.old')
-            return
 
         try:
             git.Repo.clone_from(
                 url=url,
                 to_path=out,
                 progress=progress,
-                branch=tag,
-                depth=1)
+                branch=tag)
         except git.exc.GitCommandError:
             raise RuntimeError('\n'.join(progress.error_lines))
 
@@ -126,13 +124,26 @@ class Build:
         src = root or self.root
 
         shutil.copy(cfg, os.path.join(src, '.gclient'))
-        cmd = ['gclient', 'sync', '-DR', '--no-history']
-        subprocess.run(cmd, cwd=src, check=True, stdout=True, stderr=True)
+        # --nohooks: skip gclient hooks; patches are applied manually after sync
+        # Avoids hook failures when patches don't apply to unexpected versions
+        cmd = ['gclient', 'sync', '-D', '--nohooks', '--no-history']
+        result = subprocess.run(cmd, cwd=src)
+        if result.returncode != 0:
+            # Retry without --no-history (some older mirror servers don't support it)
+            logger.warning('gclient sync with --no-history failed, retrying without it')
+            cmd = ['gclient', 'sync', '-D', '--nohooks']
+            subprocess.run(cmd, cwd=src, check=True)
+
+        # Apply patches after all sources are present
+        if hasattr(self, 'patches'):
+            for k in self.patches:
+                self.patch(**self.patches[k])
 
     def patch(self, *, file, path):
         repo = git.Repo(path)
         try:
-            repo.git.apply([file])
+            repo.git.apply([str(file)])
+            logger.info(f'patch applied: {file}')
         except git.exc.GitCommandError as e:
             logger.warning(f'patch {file} may already be applied: {e}')
 
