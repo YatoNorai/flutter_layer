@@ -63,7 +63,6 @@ pkgs = [
   'libxfixes',
   'libxft',
   'libxi',
-  'libxkbcommon',
   'libxrandr',
   'libxrender',
   'libxtst',
@@ -85,6 +84,7 @@ pkgs = [
   'libxcomposite',
   'libxdamage',
   'libxinerama',
+  'libxkbcommon',
 ]
 
 [package]
