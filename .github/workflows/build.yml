@@ -39,15 +39,17 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           libfreetype-dev ninja-build curl unzip git \
-          pkg-config build-essential python3-pip
+          pkg-config build-essential python3-pip python3-venv
 
-    # ── Python deps ───────────────────────────────────────────────────────────
-    - name: Install Python requirements
-      run: python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
-
-    # ── depot_tools ───────────────────────────────────────────────────────────
+    # ── depot_tools (must come before pip so we know PATH order) ─────────────
     - name: Set up depot_tools
       uses: newkdev/setup-depot-tools@v1.0.1
+
+    # ── Python deps — always use /usr/bin/python3 to bypass depot_tools vpython
+    - name: Install Python requirements
+      run: |
+        /usr/bin/python3 -m pip install --upgrade pip
+        /usr/bin/python3 -m pip install -r requirements.txt
 
     # ── NDK ───────────────────────────────────────────────────────────────────
     - name: Set up Android NDK
@@ -67,14 +69,13 @@ jobs:
       run: |
         INPUT_VER="${{ inputs.flutter_version }}"
         if [ -z "$INPUT_VER" ]; then
-          INPUT_VER=$(python3 -c "
+          INPUT_VER=$(/usr/bin/python3 -c "
         import tomllib
         with open('build.toml','rb') as f:
             c = tomllib.load(f)
         print(c['flutter']['tag'])
         ")
         fi
-        # Strip leading 'v' for consistency
         INPUT_VER="${INPUT_VER#v}"
         echo "flutter_version=${INPUT_VER}" >> "$GITHUB_OUTPUT"
         echo "Resolved Flutter version: ${INPUT_VER}"
@@ -86,7 +87,7 @@ jobs:
         FLUTTER_VERSION: ${{ steps.version.outputs.flutter_version }}
         FLUTTER_ARCH: ${{ inputs.arch || 'arm64' }}
         FLUTTER_MODE: ${{ inputs.mode || 'release' }}
-      run: python3 build.py
+      run: /usr/bin/python3 build.py
 
     # ── Parse output tag ──────────────────────────────────────────────────────
     - name: Parse output tag
