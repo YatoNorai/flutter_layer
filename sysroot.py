@@ -93,7 +93,7 @@ async def _work(out, arch, *src):
             _extract(out, deb)
 
     usr = out/'usr'
-    dst = 'data/data/com.termux/files/usr'
+    dst = 'data/data/com.layer.ide/files/usr'
 
     assert os.path.isdir(out/dst)
 

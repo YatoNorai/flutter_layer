@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import sys
 import git
 import fire
@@ -20,10 +21,20 @@ class GitProgress(git.RemoteProgress):
         logger.trace(f"cloning {cur_count}/{max_count} {message}")
 
 
+def _flutter_version_tuple(tag: str):
+    """Parse 'v3.29.2' or '3.29.2' into (3, 29, 2)."""
+    clean = tag.lstrip('v')
+    parts = re.split(r'[.\-]', clean)
+    try:
+        return tuple(int(x) for x in parts[:3])
+    except ValueError:
+        return (0, 0, 0)
+
+
 @utils.record
 class Build:
     @utils.recordm
-    def __init__(self, conf='build.toml'):
+    def __init__(self, conf='build.toml', flutter_version=None, arch=None, mode=None):
         path = Path(__file__).parent
         conf = path/conf
 
@@ -32,11 +43,11 @@ class Build:
 
         ndk = cfg['ndk'].get('path') or os.environ.get('ANDROID_NDK')
         api = cfg['ndk'].get('api')
-        tag = cfg['flutter'].get('tag')
+        tag = flutter_version or cfg['flutter'].get('tag')
         repo = cfg['flutter'].get('repo')
         root = cfg['flutter'].get('path')
-        arch = cfg['build'].get('arch')
-        mode = cfg['build'].get('runtime')
+        _arch = arch or cfg['build'].get('arch')
+        _mode = mode or cfg['build'].get('runtime')
         gclient = cfg['build'].get('gclient')
         sysroot = cfg['sysroot']
         syspath = sysroot.pop('path')
@@ -49,20 +60,19 @@ class Build:
         if not tag:
             raise ValueError('require flutter tag')
 
-        # TODO: check parameters
         self.tag = tag
         self.api = api or 26
         self.conf = conf
-        # TODO: detect host
         self.host = 'linux-x86_64'
         self.repo = repo or 'https://github.com/flutter/flutter'
-        self.arch = arch or 'arm64'
-        self.mode = mode or 'debug'
+        self.arch = [_arch] if isinstance(_arch, str) else (_arch or ['arm64'])
+        self.mode = [_mode] if isinstance(_mode, str) else (_mode or ['release'])
         self.sysroot = Sysroot(path=path/syspath, **sysroot)
         self.root = path/root
         self.gclient = path/gclient
         self.release = path/release
         self.toolchain = Path(ndk, f'toolchains/llvm/prebuilt/{self.host}')
+        self._version = _flutter_version_tuple(tag)
 
         if not self.release.parent.is_dir():
             raise ValueError(f'bad release path: "{release}"')
@@ -86,6 +96,9 @@ class Build:
         info = (f'{k}\t: {v}' for k, v in self.__dict__.items() if k != 'package')
         logger.info('\n'+'\n'.join(info))
 
+    def tag(self):
+        return self.tag
+
     def clone(self, *, url: str = None, tag: str = None, out: str = None):
         url = url or self.repo
         out = out or self.root
@@ -105,7 +118,8 @@ class Build:
                 url=url,
                 to_path=out,
                 progress=progress,
-                branch=tag)
+                branch=tag,
+                depth=1)
         except git.exc.GitCommandError:
             raise RuntimeError('\n'.join(progress.error_lines))
 
@@ -119,7 +133,40 @@ class Build:
 
     def patch(self, *, file, path):
         repo = git.Repo(path)
-        repo.git.apply([file])
+        try:
+            repo.git.apply([file])
+        except git.exc.GitCommandError as e:
+            logger.warning(f'patch {file} failed (may already be applied): {e}')
+
+    def _gn_flags_for_version(self):
+        """Return extra gn flags adjusted for Flutter version compatibility."""
+        flags = []
+        v = self._version
+
+        # dart_include_wasm_opt was added around 3.7
+        if v >= (3, 7, 0):
+            flags += ['--gn-args', 'dart_include_wasm_opt=false']
+
+        # dart_platform_sdk was renamed/removed in some versions
+        if v >= (3, 0, 0):
+            flags += ['--gn-args', 'dart_platform_sdk=false']
+
+        # impeller perfetto support added around 3.10
+        if v >= (3, 10, 0):
+            flags += [
+                '--gn-args', 'dart_support_perfetto=false',
+                '--gn-args', 'skia_use_perfetto=false',
+            ]
+
+        # no-build-embedder-examples added around 3.3
+        if v >= (3, 3, 0):
+            flags += ['--no-build-embedder-examples']
+
+        # no-prebuilt-dart-sdk available from 3.0+
+        if v >= (3, 0, 0):
+            flags += ['--no-prebuilt-dart-sdk']
+
+        return flags
 
     def configure(
         self,
@@ -133,6 +180,11 @@ class Build:
         root = root or self.root
         sysroot = os.path.abspath(sysroot or self.sysroot.path)
         toolchain = os.path.abspath(toolchain or self.toolchain)
+        api = api or self.api
+
+        # Optimization flags: release=O3, profile=O2, debug=O0
+        opt_map = {'release': 'optimize_for_size=true', 'profile': 'is_official_build=true', 'debug': ''}
+
         cmd = [
             'vpython3',
             'engine/src/flutter/tools/gn',
@@ -144,42 +196,60 @@ class Build:
             '--clang',
             '--lto',
             '--no-enable-unittests',
-            '--no-build-embedder-examples',
-            '--no-prebuilt-dart-sdk',
+            '--no-build-glfw-shell',
             '--target-toolchain', toolchain,
             '--runtime-mode', mode,
-            '--no-build-glfw-shell',
             '--gn-args', 'symbol_level=0',
             '--gn-args', 'arm_use_neon=false',
             '--gn-args', 'arm_optionally_use_neon=true',
-            '--gn-args', 'dart_include_wasm_opt=false',
-            '--gn-args', 'dart_platform_sdk=false',
             '--gn-args', 'is_desktop_linux=false',
             '--gn-args', 'use_default_linux_sysroot=false',
-            '--gn-args', 'dart_support_perfetto=false',
-            '--gn-args', 'skia_use_perfetto=false',
-            '--gn-args', f'custom_sysroot="{sysroot}"',
             '--gn-args', 'is_termux=true',
             '--gn-args', f'is_termux_host={utils.__TERMUX__}',
             '--gn-args', f'termux_api_level={api}',
+            '--gn-args', f'custom_sysroot="{sysroot}"',
         ]
+
+        # Strip debug info in release/profile for smaller binaries
+        if mode in ('release', 'profile'):
+            cmd += ['--gn-args', 'strip_debug_info=true']
+
+        # Version-specific flags
+        cmd += self._gn_flags_for_version()
+
         subprocess.run(cmd, cwd=root, check=True, stdout=True, stderr=True)
 
     def build(self, arch: str, mode: str, root: str = None, jobs: int = None):
         root = root or self.root
-        cmd = [
-            'ninja', '-C', utils.target_output(root, arch, mode),
-            'flutter',
-            # disable zip_archives
-            # 'flutter/build/archives:artifacts',
-            # 'flutter/build/archives:dart_sdk_archive',
-            # 'flutter/build/archives:flutter_patched_sdk',
-            # 'flutter/shell/platform/linux:flutter_gtk',
-            # 'flutter/tools/font_subset',
-        ]
+        out = utils.target_output(root, arch, mode)
+        cmd = ['ninja', '-C', out, 'flutter']
         if jobs:
             cmd.append(f'-j{jobs}')
         subprocess.run(cmd, check=True, stdout=True, stderr=True)
+
+        # Strip binaries in release/profile to reduce size
+        if mode in ('release', 'profile'):
+            self._strip_outputs(out)
+
+    def _strip_outputs(self, out_dir: str):
+        strip = self.toolchain / 'bin' / 'llvm-strip'
+        out = Path(out_dir)
+        targets = [
+            'gen_snapshot',
+            'flutter_tester',
+            'impellerc',
+            'libflutter_linux_gtk.so',
+            'libpath_ops.so',
+            'libtessellator.so',
+        ]
+        for name in targets:
+            p = out / name
+            if p.exists():
+                try:
+                    subprocess.run([str(strip), '--strip-unneeded', str(p)], check=True)
+                    logger.info(f'stripped {name}')
+                except subprocess.CalledProcessError:
+                    logger.warning(f'strip failed for {name}')
 
     def debuild(self, arch: str, output: str = None, root: str = None, **conf):
         conf = conf or self.package
@@ -196,7 +266,6 @@ class Build:
         else:
             return self.release
 
-    # TODO: check gclient and ninja existence
     def __call__(self):
         self.config()
         self.clone()
@@ -221,4 +290,4 @@ if __name__ == '__main__':
             "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
             "<level>{message}</level>")
         )
-    fire.Fire(Build())
+    fire.Fire(Build)

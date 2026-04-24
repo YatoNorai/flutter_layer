@@ -1,0 +1,19 @@
+diff --git a/packages/flutter_tools/lib/src/android/android_builder.dart b/packages/flutter_tools/lib/src/android/android_builder.dart
+index a1b2c3d..e4f5678 100644
+--- a/packages/flutter_tools/lib/src/android/android_builder.dart
++++ b/packages/flutter_tools/lib/src/android/android_builder.dart
+@@ -183,7 +183,12 @@ class AndroidGradleBuilder implements AndroidBuilder {
+   }) async {
+     if (!project.android.existsSync()) {
+       _exitWithExpectedError();
+     }
++    // Layer IDE: honour FLUTTER_ANDROID_ABIS to restrict per-ABI downloads.
++    final String? abiEnv = _platform.environment['FLUTTER_ANDROID_ABIS'];
++    if (abiEnv != null && abiEnv.isNotEmpty && !androidBuildInfo.buildInfo.isDebug) {
++      final Set<AndroidArch> filtered = androidBuildInfo.targetArchitectures
++          .where((a) => abiEnv.split(',').contains(getNameForAndroidArch(a)))
++          .toSet();
++      if (filtered.isNotEmpty) {
++        androidBuildInfo = androidBuildInfo.copyWith(targetArchitectures: filtered);
++      }
++    }

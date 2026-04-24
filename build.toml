@@ -9,8 +9,8 @@ api = 26 # >=26
 # path = 'path/to/ndk'
 
 [build]
-arch = ['arm64'] # arm, arm64, x86, x64
-runtime = ['debug'] # debug, release, profile
+arch = ['arm64']              # arm, arm64, x86, x64
+runtime = ['release']         # debug, release, profile
 gclient = './.gclient'
 
 [patch.engine]
@@ -18,7 +18,7 @@ file = './patches/engine.patch'
 path = '.'
 
 [patch.dart]
-file = './patches/dart.patch'
+file = './patches/dart.new.patch'
 path = 'engine/src/flutter/third_party/dart'
 
 [patch.skia]
@@ -28,7 +28,8 @@ path = 'engine/src/flutter/third_party/skia'
 [sysroot]
 path = './sysroot'
 
-[sysroot.termux-main]
+# Pacotes do repositório principal do Termux (não requer x11-repo)
+[sysroot.main]
 repo = 'https://packages-cf.termux.dev/apt/termux-main/'
 dist = 'stable'
 pkgs = [
@@ -62,6 +63,7 @@ pkgs = [
   'libxfixes',
   'libxft',
   'libxi',
+  'libxkbcommon',
   'libxrandr',
   'libxrender',
   'libxtst',
@@ -73,7 +75,9 @@ pkgs = [
   'zstd',
 ]
 
-[sysroot.termux-x11]
+# Pacotes GTK3/compositing — necessários apenas para `flutter run -d linux`
+# Baixados em build-time diretamente por URL sem precisar do meta-pacote x11-repo
+[sysroot.x11-gtk]
 repo = 'https://packages-cf.termux.dev/apt/termux-x11/'
 dist = 'x11'
 pkgs = [
@@ -81,7 +85,6 @@ pkgs = [
   'libxcomposite',
   'libxdamage',
   'libxinerama',
-  'libxkbcommon',
 ]
 
 [package]

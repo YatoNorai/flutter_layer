@@ -7,7 +7,7 @@ index fe4437e2..dc658b7b 100644
    // once.
    ProcessResult result = Process.runSync(
 -      "/bin/sh", ["-c", "printf '%s' '$TERMINAL_CAPABILITIES' | tput -S"]);
-+      "/data/data/com.termux/files/usr/bin/sh", ["-c", "printf '%s' '$TERMINAL_CAPABILITIES' | tput -S"]);
++      "/data/data/com.layer.ide/files/usr/bin/sh", ["-c", "printf '%s' '$TERMINAL_CAPABILITIES' | tput -S"]);
  
    if (result.exitCode != 0) {
      printEnableColorsReason("Not enabling colors, running tput failed.");
@@ -20,7 +20,7 @@ index ddfed623..c8e1ac0e 100644
    if (temp_dir == nullptr) {
  #if defined(DART_HOST_OS_ANDROID)
 -    temp_dir = "/data/local/tmp";
-+    temp_dir = "/data/data/com.termux/files/usr/tmp";
++    temp_dir = "/data/data/com.layer.ide/files/usr/tmp";
  #else
      temp_dir = "/tmp";
  #endif
@@ -57,7 +57,7 @@ index b60658c4..aa0dcb8d 100644
      }
      intptr_t pid = getpid();
 -    char* filename = OS::SCreate(nullptr, "/tmp/perf-%" Pd ".map", pid);
-+    char* filename = OS::SCreate(nullptr, "/data/data/com.termux/files/usr/tmp/perf-%" Pd ".map", pid);
++    char* filename = OS::SCreate(nullptr, "/data/data/com.layer.ide/files/usr/tmp/perf-%" Pd ".map", pid);
      out_file_ = (*file_open)(filename, true);
      free(filename);
    }
@@ -70,7 +70,7 @@ index a43770f6..208b4894 100644
        return 'cmd.exe';
      }
 -    return '/bin/sh';
-+    return '/data/data/com.termux/files/usr/bin/sh';
++    return '/data/data/com.layer.ide/files/usr/bin/sh';
    }
  
    static List<String> _getShellArguments(

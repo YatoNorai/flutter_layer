@@ -8,7 +8,11 @@ from functools import wraps
 __ARCH__ = dict(arm='arm', arm64='aarch64', x64='x86_64', x86='i686')
 __MODE__ = ('release', 'debug', 'profile')
 
-if os.environ.get('PREFIX') == '/data/data/com.termux/files/usr':
+_LAYER_PREFIX = '/data/data/com.layer.ide/files/usr'
+_TERMUX_PREFIX = '/data/data/com.termux/files/usr'
+
+_prefix = os.environ.get('PREFIX', '')
+if _prefix in (_LAYER_PREFIX, _TERMUX_PREFIX):
     __TERMUX__ = 'true'
 else:
     __TERMUX__ = 'false'

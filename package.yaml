@@ -3,19 +3,19 @@
 # arcĥ: build arch
 # version: engine version
 define:
-  prefix: '"data/data/com.termux/files/usr"'
-  distro: '"data/data/com.termux/files/usr/opt/flutter"'
+  prefix: '"data/data/com.layer.ide/files/usr"'
+  distro: '"data/data/com.layer.ide/files/usr/opt/flutter"'
   remote: f'https://storage.googleapis.com/flutter_infra_release/flutter/{version}'
 
 control:
   Package: flutter
   Version: $tag
   Architecture: $architecture
-  Maintainer: mumumusuc <mumumusuc@gmail.com>
-  Pre-Depends: x11-repo
-  Depends: git, which, gtk3, xorgproto, ninja, cmake, clang, pkg-config
+  Maintainer: YatoNorai <edilsonmauro6@gmail.com>
+  Depends: git, which, ninja, cmake, clang, pkg-config, curl, unzip
+  Recommends: gtk3, xorgproto
   Homepage: https://www.github.com/flutter/flutter
-  Description: Flutter makes it easy and fast to build beautiful apps for mobile and beyond
+  Description: Flutter SDK for Layer IDE - build beautiful apps for mobile and beyond
 
 resource:
   flutter:
@@ -134,6 +134,8 @@ resource:
   executable:
     source: |-
       #!/$prefix/bin/sh
+      export FLUTTER_ROOT=/$distro
+      export PUB_CACHE=${HOME}/.pub-cache
       exec /$distro/bin/flutter "$@"
     output:
       - $prefix/bin/flutter
@@ -141,7 +143,14 @@ resource:
     mode: 0o755
 
   profile:
-    source: export PATH=${PREFIX}/opt/flutter/bin:${PATH}
+    source: |-
+      export PATH=${PREFIX}/opt/flutter/bin:${PATH}
+      export FLUTTER_ROOT=${PREFIX}/opt/flutter
+      export PUB_CACHE=${HOME}/.pub-cache
+      # Limit Android APK builds to arm64 to avoid x86/arm download failures
+      export FLUTTER_ANDROID_ABIS="arm64-v8a"
+      # Use faster pub.dev mirror if available
+      export PUB_HOSTED_URL=${PUB_HOSTED_URL:-https://pub.dev}
     output: $prefix/etc/profile.d/flutter.sh
     binary: true
     mode: 0o755
