@@ -28,36 +28,25 @@ path = 'engine/src/flutter/third_party/skia'
 [sysroot]
 path = './sysroot'
 
-# Pacotes do repositório principal (mirror próprio)
+# Pacotes disponíveis no mirror próprio
 [sysroot.main]
 repo = 'https://packagesyatonorai.duckdns.org/apt/termux-main/'
 dist = 'stable'
 pkgs = [
-  'at-spi2-core',
   'brotli',
   'dbus',
   'fontconfig',
   'freetype',
-  'fribidi',
-  'gdk-pixbuf',
   'glib',
-  'harfbuzz',
-  'libcairo',
-  'libepoxy',
   'libexpat',
   'libffi',
-  'libglvnd',
-  'libgraphite',
   'libjpeg-turbo',
   'liblzma',
-  'libpixman',
   'libpng',
   'libtiff',
-  'libwayland',
   'libx11',
   'libxau',
   'libxcb',
-  'libxcursor',
   'libxdmcp',
   'libxext',
   'libxfixes',
@@ -66,16 +55,33 @@ pkgs = [
   'libxrandr',
   'libxrender',
   'libxtst',
-  'pango',
   'pcre2',
-  'swiftshader',
-  'xorgproto',
   'zlib',
   'zstd',
 ]
 
-# Pacotes GTK3/compositing — necessários apenas para `flutter run -d linux`
-# Baixados em build-time diretamente por URL sem precisar do meta-pacote x11-repo
+# Pacotes ausentes no mirror — buscados direto do repositório oficial Termux
+[sysroot.main-official]
+repo = 'https://packages-cf.termux.dev/apt/termux-main/'
+dist = 'stable'
+pkgs = [
+  'at-spi2-core',
+  'fribidi',
+  'gdk-pixbuf',
+  'harfbuzz',
+  'libcairo',
+  'libepoxy',
+  'libglvnd',
+  'libgraphite',
+  'libpixman',
+  'libwayland',
+  'libxcursor',
+  'pango',
+  'swiftshader',
+  'xorgproto',
+]
+
+# Pacotes GTK3/compositing (necessários para `flutter run -d linux`)
 [sysroot.x11-gtk]
 repo = 'https://packages-cf.termux.dev/apt/termux-x11/'
 dist = 'x11'
