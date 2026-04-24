@@ -93,7 +93,9 @@ async def _work(out, arch, *src):
             _extract(out, deb)
 
     usr = out/'usr'
-    dst = 'data/data/com.layer.ide/files/usr'
+    # Termux .deb packages always extract their files under this path —
+    # this is the package-internal prefix, independent of our app's package ID.
+    dst = 'data/data/com.termux/files/usr'
 
     assert os.path.isdir(out/dst)
 

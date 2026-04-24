@@ -28,9 +28,9 @@ path = 'engine/src/flutter/third_party/skia'
 [sysroot]
 path = './sysroot'
 
-# Pacotes do repositório principal do Termux (não requer x11-repo)
+# Pacotes do repositório principal (mirror próprio)
 [sysroot.main]
-repo = 'https://packages-cf.termux.dev/apt/termux-main/'
+repo = 'https://packagesyatonorai.duckdns.org/apt/termux-main/'
 dist = 'stable'
 pkgs = [
   'at-spi2-core',
