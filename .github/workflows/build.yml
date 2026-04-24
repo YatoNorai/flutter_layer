@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       flutter_version:
-        description: 'Flutter version tag (e.g. 3.29.2, 3.22.0, 3.10.0, 2.10.5)'
+        description: 'Flutter version tag (e.g. 3.29.2, 3.22.0, 3.10.0, 2.10.5) — leave blank for default'
         required: false
         default: ''
       arch:
@@ -12,20 +12,13 @@ on:
         required: false
         default: 'arm64'
         type: choice
-        options:
-          - arm64
-          - arm
-          - x64
-          - x86
+        options: [arm64, arm, x64, x86]
       mode:
         description: 'Build mode'
         required: false
         default: 'release'
         type: choice
-        options:
-          - release
-          - debug
-          - profile
+        options: [release, debug, profile]
       ndk_version:
         description: 'Android NDK version (e.g. r27c, r26d, r25c)'
         required: false
@@ -36,125 +29,75 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # ── Checkout ─────────────────────────────────────────────────────────────
     - name: Checkout
       uses: actions/checkout@v4
 
-    # ── NDK ──────────────────────────────────────────────────────────────────
-    - name: Set up Android NDK ${{ inputs.ndk_version || 'r27c' }}
-      id: ndk
-      run: |
-        NDK_VER="${{ inputs.ndk_version || 'r27c' }}"
-        NDK_URL="https://dl.google.com/android/repository/android-ndk-${NDK_VER}-linux.zip"
-        echo "Downloading NDK ${NDK_VER}..."
-        curl -fsSL "${NDK_URL}" -o ndk.zip
-        unzip -q ndk.zip -d $HOME
-        NDK_PATH=$(find $HOME -maxdepth 1 -name "android-ndk-*" -type d | head -1)
-        echo "ANDROID_NDK=${NDK_PATH}" >> $GITHUB_ENV
-        echo "ndk_path=${NDK_PATH}" >> $GITHUB_OUTPUT
-
-    # ── System dependencies ──────────────────────────────────────────────────
+    # ── System dependencies ───────────────────────────────────────────────────
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           libfreetype-dev ninja-build curl unzip git \
-          python3-pip pkg-config build-essential
+          pkg-config build-essential python3-pip
 
-    # ── depot_tools ─────────────────────────────────────────────────────────
+    # ── Python deps ───────────────────────────────────────────────────────────
+    - name: Install Python requirements
+      run: python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
+
+    # ── depot_tools ───────────────────────────────────────────────────────────
     - name: Set up depot_tools
       uses: newkdev/setup-depot-tools@v1.0.1
 
-    # ── Python deps ─────────────────────────────────────────────────────────
-    - name: Install Python requirements
-      run: pip install -r requirements.txt
+    # ── NDK ───────────────────────────────────────────────────────────────────
+    - name: Set up Android NDK
+      run: |
+        NDK_VER="${{ inputs.ndk_version || 'r27c' }}"
+        NDK_URL="https://dl.google.com/android/repository/android-ndk-${NDK_VER}-linux.zip"
+        echo "Downloading NDK ${NDK_VER}..."
+        curl -fsSL "${NDK_URL}" -o ndk.zip
+        unzip -q ndk.zip -d "$HOME"
+        NDK_PATH=$(find "$HOME" -maxdepth 1 -name "android-ndk-*" -type d | head -1)
+        echo "ANDROID_NDK=${NDK_PATH}" >> "$GITHUB_ENV"
+        echo "NDK installed at: ${NDK_PATH}"
 
-    # ── Resolve Flutter version ──────────────────────────────────────────────
+    # ── Resolve Flutter version ───────────────────────────────────────────────
     - name: Resolve Flutter version
       id: version
       run: |
         INPUT_VER="${{ inputs.flutter_version }}"
         if [ -z "$INPUT_VER" ]; then
-          # Read default from build.toml
           INPUT_VER=$(python3 -c "
         import tomllib
         with open('build.toml','rb') as f:
-            c=tomllib.load(f)
+            c = tomllib.load(f)
         print(c['flutter']['tag'])
         ")
         fi
-        echo "flutter_version=${INPUT_VER}" >> $GITHUB_OUTPUT
+        # Strip leading 'v' for consistency
+        INPUT_VER="${INPUT_VER#v}"
+        echo "flutter_version=${INPUT_VER}" >> "$GITHUB_OUTPUT"
         echo "Resolved Flutter version: ${INPUT_VER}"
 
-    # ── Compatibility matrix for old Flutter versions ───────────────────────
-    - name: Detect compatibility flags
-      id: compat
-      run: |
-        VER="${{ steps.version.outputs.flutter_version }}"
-        python3 - <<'EOF'
-        import sys, os, re
-
-        ver_str = "$VER".lstrip('v')
-        parts = re.split(r'[.\-]', ver_str)
-        try:
-            major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
-        except (ValueError, IndexError):
-            major, minor, patch = 3, 0, 0
-
-        flags = []
-
-        # Flutter < 3.0: use old GN script path
-        if major < 3:
-            flags.append('LEGACY_GN=1')
-
-        # Flutter < 3.3: --no-build-embedder-examples not available
-        if (major, minor) < (3, 3):
-            flags.append('NO_EMBEDDER_EXAMPLES=0')
-        else:
-            flags.append('NO_EMBEDDER_EXAMPLES=1')
-
-        # Flutter < 3.7: dart_include_wasm_opt not available
-        if (major, minor) < (3, 7):
-            flags.append('HAS_WASM_OPT=0')
-        else:
-            flags.append('HAS_WASM_OPT=1')
-
-        # Flutter < 3.10: no perfetto flags
-        if (major, minor) < (3, 10):
-            flags.append('HAS_PERFETTO=0')
-        else:
-            flags.append('HAS_PERFETTO=1')
-
-        env_file = os.environ.get('GITHUB_OUTPUT', '/dev/stdout')
-        with open(env_file, 'a') as f:
-            for flag in flags:
-                k, v = flag.split('=', 1)
-                f.write(f"{k.lower()}={v}\n")
-        EOF
-
-    # ── Build ────────────────────────────────────────────────────────────────
+    # ── Build ─────────────────────────────────────────────────────────────────
     - name: Build Flutter ${{ steps.version.outputs.flutter_version }}
       env:
         ANDROID_NDK: ${{ env.ANDROID_NDK }}
-      run: |
-        VER="${{ steps.version.outputs.flutter_version }}"
-        ARCH="${{ inputs.arch || 'arm64' }}"
-        MODE="${{ inputs.mode || 'release' }}"
+        FLUTTER_VERSION: ${{ steps.version.outputs.flutter_version }}
+        FLUTTER_ARCH: ${{ inputs.arch || 'arm64' }}
+        FLUTTER_MODE: ${{ inputs.mode || 'release' }}
+      run: python3 build.py
 
-        python3 build.py \
-          --flutter_version="${VER}" \
-          --arch="${ARCH}" \
-          --mode="${MODE}"
-
-    # ── Parse output tag ─────────────────────────────────────────────────────
+    # ── Parse output tag ──────────────────────────────────────────────────────
     - name: Parse output tag
       id: parser
       run: |
-        TAG="${{ steps.version.outputs.flutter_version }}"
+        VER="${{ steps.version.outputs.flutter_version }}"
         ARCH="${{ inputs.arch || 'arm64' }}"
-        echo "TAG=v${TAG}-${ARCH}" >> $GITHUB_OUTPUT
-        echo "TITLE=Flutter ${TAG} (${ARCH})" >> $GITHUB_OUTPUT
+        echo "TAG=v${VER}-${ARCH}" >> "$GITHUB_OUTPUT"
+        echo "TITLE=Flutter ${VER} (${ARCH})" >> "$GITHUB_OUTPUT"
 
-    # ── Upload artifact ──────────────────────────────────────────────────────
+    # ── Upload artifact ───────────────────────────────────────────────────────
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
@@ -163,7 +106,7 @@ jobs:
         compression-level: 9
         if-no-files-found: warn
 
-    # ── Release ──────────────────────────────────────────────────────────────
+    # ── GitHub Release ────────────────────────────────────────────────────────
     - name: Create GitHub Release
       if: success()
       uses: softprops/action-gh-release@v2

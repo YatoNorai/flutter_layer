@@ -22,7 +22,6 @@ class GitProgress(git.RemoteProgress):
 
 
 def _flutter_version_tuple(tag: str):
-    """Parse 'v3.29.2' or '3.29.2' into (3, 29, 2)."""
     clean = tag.lstrip('v')
     parts = re.split(r'[.\-]', clean)
     try:
@@ -34,20 +33,21 @@ def _flutter_version_tuple(tag: str):
 @utils.record
 class Build:
     @utils.recordm
-    def __init__(self, conf='build.toml', flutter_version=None, arch=None, mode=None):
+    def __init__(self, conf='build.toml'):
         path = Path(__file__).parent
         conf = path/conf
 
         with open(conf, 'rb') as f:
             cfg = tomllib.load(f)
 
+        # CLI / env-var overrides take precedence over build.toml values
         ndk = cfg['ndk'].get('path') or os.environ.get('ANDROID_NDK')
         api = cfg['ndk'].get('api')
-        tag = flutter_version or cfg['flutter'].get('tag')
+        tag = (os.environ.get('FLUTTER_VERSION') or '').strip() or cfg['flutter'].get('tag')
         repo = cfg['flutter'].get('repo')
         root = cfg['flutter'].get('path')
-        _arch = arch or cfg['build'].get('arch')
-        _mode = mode or cfg['build'].get('runtime')
+        _arch = os.environ.get('FLUTTER_ARCH') or cfg['build'].get('arch')
+        _mode = os.environ.get('FLUTTER_MODE') or cfg['build'].get('runtime')
         gclient = cfg['build'].get('gclient')
         sysroot = cfg['sysroot']
         syspath = sysroot.pop('path')
@@ -60,7 +60,7 @@ class Build:
         if not tag:
             raise ValueError('require flutter tag')
 
-        self.tag = tag
+        self.flutter_tag = tag
         self.api = api or 26
         self.conf = conf
         self.host = 'linux-x86_64'
@@ -92,17 +92,15 @@ class Build:
                     'path': self.root/v['path']}
                 self.__dict__[f'patch_{k}'] = patch(k)
 
+    # Expose flutter_tag as a plain string for `python build.py flutter_tag`
     def config(self):
         info = (f'{k}\t: {v}' for k, v in self.__dict__.items() if k != 'package')
         logger.info('\n'+'\n'.join(info))
 
-    def tag(self):
-        return self.tag
-
     def clone(self, *, url: str = None, tag: str = None, out: str = None):
         url = url or self.repo
         out = out or self.root
-        tag = tag or self.tag
+        tag = tag or self.flutter_tag
         progress = GitProgress()
 
         if utils.flutter_tag(out) == tag:
@@ -136,33 +134,28 @@ class Build:
         try:
             repo.git.apply([file])
         except git.exc.GitCommandError as e:
-            logger.warning(f'patch {file} failed (may already be applied): {e}')
+            logger.warning(f'patch {file} may already be applied: {e}')
 
     def _gn_flags_for_version(self):
-        """Return extra gn flags adjusted for Flutter version compatibility."""
+        """Extra GN flags adjusted per Flutter version for backward compatibility."""
         flags = []
         v = self._version
 
-        # dart_include_wasm_opt was added around 3.7
         if v >= (3, 7, 0):
             flags += ['--gn-args', 'dart_include_wasm_opt=false']
 
-        # dart_platform_sdk was renamed/removed in some versions
         if v >= (3, 0, 0):
             flags += ['--gn-args', 'dart_platform_sdk=false']
 
-        # impeller perfetto support added around 3.10
         if v >= (3, 10, 0):
             flags += [
                 '--gn-args', 'dart_support_perfetto=false',
                 '--gn-args', 'skia_use_perfetto=false',
             ]
 
-        # no-build-embedder-examples added around 3.3
         if v >= (3, 3, 0):
             flags += ['--no-build-embedder-examples']
 
-        # no-prebuilt-dart-sdk available from 3.0+
         if v >= (3, 0, 0):
             flags += ['--no-prebuilt-dart-sdk']
 
@@ -181,9 +174,6 @@ class Build:
         sysroot = os.path.abspath(sysroot or self.sysroot.path)
         toolchain = os.path.abspath(toolchain or self.toolchain)
         api = api or self.api
-
-        # Optimization flags: release=O3, profile=O2, debug=O0
-        opt_map = {'release': 'optimize_for_size=true', 'profile': 'is_official_build=true', 'debug': ''}
 
         cmd = [
             'vpython3',
@@ -210,11 +200,9 @@ class Build:
             '--gn-args', f'custom_sysroot="{sysroot}"',
         ]
 
-        # Strip debug info in release/profile for smaller binaries
         if mode in ('release', 'profile'):
             cmd += ['--gn-args', 'strip_debug_info=true']
 
-        # Version-specific flags
         cmd += self._gn_flags_for_version()
 
         subprocess.run(cmd, cwd=root, check=True, stdout=True, stderr=True)
@@ -227,7 +215,6 @@ class Build:
             cmd.append(f'-j{jobs}')
         subprocess.run(cmd, check=True, stdout=True, stderr=True)
 
-        # Strip binaries in release/profile to reduce size
         if mode in ('release', 'profile'):
             self._strip_outputs(out)
 
@@ -235,12 +222,8 @@ class Build:
         strip = self.toolchain / 'bin' / 'llvm-strip'
         out = Path(out_dir)
         targets = [
-            'gen_snapshot',
-            'flutter_tester',
-            'impellerc',
-            'libflutter_linux_gtk.so',
-            'libpath_ops.so',
-            'libtessellator.so',
+            'gen_snapshot', 'flutter_tester', 'impellerc',
+            'libflutter_linux_gtk.so', 'libpath_ops.so', 'libtessellator.so',
         ]
         for name in targets:
             p = out / name
@@ -261,7 +244,7 @@ class Build:
 
     def output(self, arch: str):
         if self.release.is_dir():
-            name = f'flutter_{self.tag}_{utils.termux_arch(arch)}.deb'
+            name = f'flutter_{self.flutter_tag}_{utils.termux_arch(arch)}.deb'
             return self.release/name
         else:
             return self.release
@@ -290,4 +273,4 @@ if __name__ == '__main__':
             "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
             "<level>{message}</level>")
         )
-    fire.Fire(Build)
+    fire.Fire(Build())
